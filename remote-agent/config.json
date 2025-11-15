@@ -1,0 +1,5 @@
+{
+  "serverUrl": "ws://localhost:3001",
+  "computerName": "Mój Komputer",
+  "reconnectInterval": 5000
+}
