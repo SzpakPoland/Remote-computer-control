@@ -8,7 +8,6 @@ function App() {
   const [computers, setComputers] = useState([]);
   const [selectedComputer, setSelectedComputer] = useState(null);
   const [connected, setConnected] = useState(false);
-  const [volume, setVolume] = useState(50);
   const [message, setMessage] = useState('');
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloadConfig, setDownloadConfig] = useState({
@@ -104,15 +103,6 @@ function App() {
     }));
   };
 
-  const handleVolumeChange = (e) => {
-    const newVolume = parseInt(e.target.value);
-    setVolume(newVolume);
-  };
-
-  const handleVolumeSet = () => {
-    sendCommand('set_volume', { volume });
-  };
-
   const handleDownloadAgent = async () => {
     try {
       // Generuj konfigurację
@@ -198,27 +188,14 @@ function App() {
               <h2>Kontrola: {selectedComputer.name}</h2>
               
               <div className="control-section">
-                <h3>🔊 Głośność</h3>
-                <div className="volume-control">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={volume}
-                    onChange={handleVolumeChange}
-                    className="volume-slider"
-                  />
-                  <span className="volume-value">{volume}%</span>
-                  <button onClick={handleVolumeSet} className="btn btn-primary">
-                    Ustaw Głośność
+                <h3>🔊 Dźwięk</h3>
+                <div className="power-controls">
+                  <button onClick={() => sendCommand('mute')} className="btn btn-warning">
+                    🔊 Włącz Dźwięk
                   </button>
-                </div>
-                <div className="volume-presets">
-                  <button onClick={() => { setVolume(0); sendCommand('set_volume', { volume: 0 }); }} className="btn btn-small">Wycisz</button>
-                  <button onClick={() => { setVolume(25); sendCommand('set_volume', { volume: 25 }); }} className="btn btn-small">25%</button>
-                  <button onClick={() => { setVolume(50); sendCommand('set_volume', { volume: 50 }); }} className="btn btn-small">50%</button>
-                  <button onClick={() => { setVolume(75); sendCommand('set_volume', { volume: 75 }); }} className="btn btn-small">75%</button>
-                  <button onClick={() => { setVolume(100); sendCommand('set_volume', { volume: 100 }); }} className="btn btn-small">Max</button>
+                  <button onClick={() => sendCommand('unmute')} className="btn btn-primary">
+                    🔇 Wycisz
+                  </button>
                 </div>
               </div>
 
@@ -242,10 +219,68 @@ function App() {
               </div>
 
               <div className="control-section">
+                <h3>🔒 Bezpieczeństwo i Ekran</h3>
+                <div className="power-controls">
+                  <button onClick={() => sendCommand('lock')} className="btn btn-secondary">
+                    🔒 Zablokuj Ekran
+                  </button>
+                  <button onClick={() => sendCommand('monitor_off')} className="btn btn-secondary">
+                    🖥️ Wyłącz Monitor
+                  </button>
+                </div>
+              </div>
+
+              <div className="control-section">
+                <h3>🚀 Aplikacje</h3>
+                <div className="power-controls">
+                  <button onClick={() => sendCommand('open_app', { app: 'notepad' })} className="btn btn-secondary">
+                    📝 Notatnik
+                  </button>
+                  <button onClick={() => sendCommand('open_app', { app: 'calc' })} className="btn btn-secondary">
+                    🔢 Kalkulator
+                  </button>
+                  <button onClick={() => sendCommand('open_app', { app: 'mspaint' })} className="btn btn-secondary">
+                    🎨 Paint
+                  </button>
+                  <button onClick={() => {
+                    const app = prompt('Nazwa aplikacji do uruchomienia:');
+                    if (app) sendCommand('open_app', { app });
+                  }} className="btn btn-secondary">
+                    ➕ Inna Aplikacja
+                  </button>
+                </div>
+              </div>
+
+              <div className="control-section">
+                <h3>💬 Komunikacja</h3>
+                <div className="power-controls">
+                  <button onClick={() => {
+                    const message = prompt('Wpisz wiadomość do wyświetlenia na zdalnym komputerze:');
+                    if (message) sendCommand('show_message', { message });
+                  }} className="btn btn-primary">
+                    📨 Wyślij Wiadomość
+                  </button>
+                </div>
+              </div>
+
+              <div className="control-section">
+                <h3>🧹 Czyszczenie</h3>
+                <div className="power-controls">
+                  <button onClick={() => {
+                    if (window.confirm('Czy na pewno chcesz opróżnić kosz?')) {
+                      sendCommand('empty_recycle_bin');
+                    }
+                  }} className="btn btn-warning">
+                    🗑️ Opróżnij Kosz
+                  </button>
+                </div>
+              </div>
+
+              <div className="control-section">
                 <h3>ℹ️ Informacje</h3>
                 <div className="info-controls">
                   <button onClick={() => sendCommand('get_info')} className="btn btn-secondary">
-                    Odśwież Informacje
+                    📊 Odśwież Informacje
                   </button>
                 </div>
               </div>

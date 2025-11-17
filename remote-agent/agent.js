@@ -68,121 +68,6 @@ let reconnectTimeout = null;
 let computerId = null;
 
 // Funkcje wykonywania komend specyficzne dla systemu
-function setVolume(volume) {
-  return new Promise((resolve, reject) => {
-    const platform = os.platform();
-    let command;
-
-    if (platform === 'win32') {
-      // Windows - używa NirCmd (prostsze rozwiązanie)
-      // Alternatywnie można użyć PowerShell
-      const volumeLevel = Math.round((volume / 100) * 65535);
-      
-      // Metoda 1: PowerShell z prostym skryptem
-      command = `powershell -Command "$wshell = new-object -com wscript.shell; 1..50 | ForEach-Object { $wshell.SendKeys([char]174) }; 1..${volume * 2} | ForEach-Object { $wshell.SendKeys([char]175) }"`;
-      
-      // Metoda 2: Bardziej niezawodna - zapisz i wykonaj skrypt PS1
-      const fs = require('fs');
-      const path = require('path');
-      const scriptPath = path.join(__dirname, 'set-volume.ps1');
-      const psScript = `
-Add-Type -TypeDefinition @"
-using System.Runtime.InteropServices;
-[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IAudioEndpointVolume
-{
-    int NotImpl1();
-    int NotImpl2();
-    int RegisterControlChangeNotify();
-    int UnregisterControlChangeNotify();
-    int GetChannelCount();
-    int SetMasterVolumeLevel(float level, System.Guid eventContext);
-    int SetMasterVolumeLevelScalar(float level, System.Guid eventContext);
-    int GetMasterVolumeLevel();
-    int GetMasterVolumeLevelScalar(out float level);
-    int SetChannelVolumeLevel();
-    int SetChannelVolumeLevelScalar();
-    int GetChannelVolumeLevel();
-    int GetChannelVolumeLevelScalar();
-    int SetMute([MarshalAs(UnmanagedType.Bool)] bool isMuted, System.Guid eventContext);
-    int GetMute(out bool isMuted);
-    int GetVolumeStepInfo();
-    int VolumeStepUp();
-    int VolumeStepDown();
-    int QueryHardwareSupport();
-    int GetVolumeRange();
-}
-[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IMMDevice
-{
-    int Activate(ref System.Guid id, int clsCtx, int activationParams, out IAudioEndpointVolume aev);
-}
-[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-interface IMMDeviceEnumerator
-{
-    int NotImpl1();
-    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint);
-}
-[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-class MMDeviceEnumeratorComObject { }
-public class Audio
-{
-    static IAudioEndpointVolume Vol()
-    {
-        var enumerator = new MMDeviceEnumeratorComObject() as IMMDeviceEnumerator;
-        IMMDevice dev = null;
-        enumerator.GetDefaultAudioEndpoint(0, 0, out dev);
-        IAudioEndpointVolume epv = null;
-        var epvid = typeof(IAudioEndpointVolume).GUID;
-        dev.Activate(ref epvid, 0, 0, out epv);
-        return epv;
-    }
-    public static float GetVolume()
-    {
-        float v = -1;
-        Vol().GetMasterVolumeLevelScalar(out v);
-        return v;
-    }
-    public static void SetVolume(float v)
-    {
-        Vol().SetMasterVolumeLevelScalar(v, System.Guid.Empty);
-    }
-    public static void SetMute(bool mute)
-    {
-        Vol().SetMute(mute, System.Guid.Empty);
-    }
-}
-"@
-[Audio]::SetVolume(${volume / 100})
-      `;
-      
-      fs.writeFileSync(scriptPath, psScript, 'utf8');
-      command = `powershell -ExecutionPolicy Bypass -File "${scriptPath}"`;
-      
-    } else if (platform === 'darwin') {
-      // macOS
-      command = `osascript -e "set volume output volume ${volume}"`;
-    } else if (platform === 'linux') {
-      // Linux - używa amixer
-      command = `amixer -D pulse sset Master ${volume}%`;
-    } else {
-      reject(new Error('Nieobsługiwany system operacyjny'));
-      return;
-    }
-
-    exec(command, (error, stdout, stderr) => {
-      if (error) {
-        console.error('Błąd ustawiania głośności:', error.message);
-        console.error('stderr:', stderr);
-        reject(new Error(`Nie udało się ustawić głośności: ${error.message}`));
-      } else {
-        console.log(`Głośność ustawiona na ${volume}%`);
-        resolve(`Głośność ustawiona na ${volume}%`);
-      }
-    });
-  });
-}
-
 function shutdownComputer() {
   return new Promise((resolve, reject) => {
     const platform = os.platform();
@@ -241,7 +126,8 @@ function sleepComputer() {
     let command;
 
     if (platform === 'win32') {
-      command = 'rundll32.exe powrprof.dll,SetSuspendState 0,1,0';
+      // Hibernate: 1,1,0 | Sleep: 0,1,0 | Hybrid: 0,1,1
+      command = 'powershell -Command "Add-Type -Assembly System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState([System.Windows.Forms.PowerState]::Suspend, $false, $false)"';
     } else if (platform === 'darwin') {
       command = 'pmset sleepnow';
     } else if (platform === 'linux') {
@@ -255,7 +141,7 @@ function sleepComputer() {
       if (error) {
         reject(error);
       } else {
-        resolve('Komputer zostanie uśpiony');
+        resolve('Komputer został uśpiony');
       }
     });
   });
@@ -273,6 +159,215 @@ function getSystemInfo() {
   });
 }
 
+function muteAudio() {
+  return new Promise((resolve, reject) => {
+    const platform = os.platform();
+    let command;
+
+    if (platform === 'win32') {
+      command = 'powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]173)"';
+    } else if (platform === 'darwin') {
+      command = 'osascript -e "set volume output muted true"';
+    } else if (platform === 'linux') {
+      command = 'amixer -D pulse sset Master mute';
+    } else {
+      reject(new Error('Nieobsługiwany system operacyjny'));
+      return;
+    }
+
+    exec(command, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve('Dźwięk wyciszony');
+      }
+    });
+  });
+}
+
+function unmuteAudio() {
+  return new Promise((resolve, reject) => {
+    const platform = os.platform();
+    let command;
+
+    if (platform === 'win32') {
+      command = 'powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]173)"';
+    } else if (platform === 'darwin') {
+      command = 'osascript -e "set volume output muted false"';
+    } else if (platform === 'linux') {
+      command = 'amixer -D pulse sset Master unmute';
+    } else {
+      reject(new Error('Nieobsługiwany system operacyjny'));
+      return;
+    }
+
+    exec(command, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve('Dźwięk włączony');
+      }
+    });
+  });
+}
+
+function lockScreen() {
+  return new Promise((resolve, reject) => {
+    const platform = os.platform();
+    let command;
+
+    if (platform === 'win32') {
+      command = 'rundll32.exe user32.dll,LockWorkStation';
+    } else if (platform === 'darwin') {
+      command = '/System/Library/CoreServices/Menu\\ Extras/User.menu/Contents/Resources/CGSession -suspend';
+    } else if (platform === 'linux') {
+      command = 'loginctl lock-session';
+    } else {
+      reject(new Error('Nieobsługiwany system operacyjny'));
+      return;
+    }
+
+    exec(command, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve('Ekran zablokowany');
+      }
+    });
+  });
+}
+
+function turnOffMonitor() {
+  return new Promise((resolve, reject) => {
+    const platform = os.platform();
+    let command;
+
+    if (platform === 'win32') {
+      command = 'powershell -Command "(Add-Type \'[DllImport(\\"user32.dll\\")]public static extern int SendMessage(int hWnd,int hMsg,int wParam,int lParam);\' -Name a -Pas)::SendMessage(-1,0x0112,0xF170,2)"';
+    } else if (platform === 'darwin') {
+      command = 'pmset displaysleepnow';
+    } else if (platform === 'linux') {
+      command = 'xset dpms force off';
+    } else {
+      reject(new Error('Nieobsługiwany system operacyjny'));
+      return;
+    }
+
+    exec(command, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve('Monitor wyłączony');
+      }
+    });
+  });
+}
+
+function openApplication(appName) {
+  return new Promise((resolve, reject) => {
+    const platform = os.platform();
+    let command;
+
+    if (platform === 'win32') {
+      command = `start ${appName}`;
+    } else if (platform === 'darwin') {
+      command = `open -a "${appName}"`;
+    } else if (platform === 'linux') {
+      command = `${appName} &`;
+    } else {
+      reject(new Error('Nieobsługiwany system operacyjny'));
+      return;
+    }
+
+    exec(command, (error) => {
+      if (error) {
+        reject(new Error(`Nie można otworzyć aplikacji: ${error.message}`));
+      } else {
+        resolve(`Otwarto aplikację: ${appName}`);
+      }
+    });
+  });
+}
+
+function showNotification(message) {
+  return new Promise((resolve, reject) => {
+    const platform = os.platform();
+    let command;
+
+    if (platform === 'win32') {
+      // Windows - użyj msg.exe (powinno działać na wszystkich sesjach)
+      // Usuń problematyczne znaki
+      const safeMessage = message.replace(/"/g, "'").replace(/\\/g, "/");
+      command = `msg * /TIME:30 "${safeMessage}"`;
+      
+      exec(command, (error, stdout, stderr) => {
+        if (error) {
+          // Jeśli msg nie działa (np. Windows Home), użyj PowerShell
+          console.log('msg.exe nie działa, używam PowerShell...');
+          const psMessage = message.replace(/'/g, "''").replace(/"/g, '""');
+          const psCommand = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('${psMessage}', 'Zdalna Wiadomosc', 'OK', 'Information') | Out-Null"`;
+          
+          exec(psCommand, (psError) => {
+            if (psError) {
+              console.error('Błąd PowerShell:', psError.message);
+              reject(new Error(`Nie udało się wyświetlić wiadomości: ${psError.message}`));
+            } else {
+              resolve('Wiadomość wyświetlona (PowerShell)');
+            }
+          });
+        } else {
+          resolve('Wiadomość wyświetlona');
+        }
+      });
+      return; // Ważne - wyjdź z funkcji
+      
+    } else if (platform === 'darwin') {
+      const safeMessage = message.replace(/"/g, '\\"');
+      command = `osascript -e 'display notification "${safeMessage}" with title "Zdalna Wiadomość"'`;
+    } else if (platform === 'linux') {
+      const safeMessage = message.replace(/"/g, '\\"');
+      command = `notify-send "Zdalna Wiadomość" "${safeMessage}"`;
+    } else {
+      reject(new Error('Nieobsługiwany system operacyjny'));
+      return;
+    }
+
+    exec(command, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve('Wiadomość wyświetlona');
+      }
+    });
+  });
+}
+
+function emptyRecycleBin() {
+  return new Promise((resolve, reject) => {
+    const platform = os.platform();
+    let command;
+
+    if (platform === 'win32') {
+      command = 'powershell -Command "Clear-RecycleBin -Force"';
+    } else if (platform === 'darwin') {
+      command = 'rm -rf ~/.Trash/*';
+    } else if (platform === 'linux') {
+      command = 'rm -rf ~/.local/share/Trash/*';
+    } else {
+      reject(new Error('Nieobsługiwany system operacyjny'));
+      return;
+    }
+
+    exec(command, (error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve('Kosz został opróżniony');
+      }
+    });
+  });
+}
+
 async function executeCommand(command, params) {
   console.log(`Wykonywanie komendy: ${command}`, params);
   
@@ -280,8 +375,12 @@ async function executeCommand(command, params) {
     let result;
     
     switch (command) {
-      case 'set_volume':
-        result = await setVolume(params.volume || 50);
+      case 'mute':
+        result = await muteAudio();
+        break;
+        
+      case 'unmute':
+        result = await unmuteAudio();
         break;
         
       case 'shutdown':
@@ -294,6 +393,26 @@ async function executeCommand(command, params) {
         
       case 'sleep':
         result = await sleepComputer();
+        break;
+        
+      case 'lock':
+        result = await lockScreen();
+        break;
+        
+      case 'monitor_off':
+        result = await turnOffMonitor();
+        break;
+        
+      case 'open_app':
+        result = await openApplication(params.app || 'notepad');
+        break;
+        
+      case 'show_message':
+        result = await showNotification(params.message || 'Test');
+        break;
+        
+      case 'empty_recycle_bin':
+        result = await emptyRecycleBin();
         break;
         
       case 'get_info':
