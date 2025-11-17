@@ -65,7 +65,7 @@ const computers = new Map(); // id -> {ws, name, info}
 const webClients = new Map(); // ws -> {username, role}
 
 wss.on('connection', (ws) => {
-  console.log('Nowe połączenie WebSocket');
+  // Nowe połączenie WebSocket
   
   ws.on('message', (message) => {
     try {
@@ -84,7 +84,7 @@ wss.on('connection', (ws) => {
           ws.computerId = computerId;
           ws.isComputer = true;
           
-          console.log(`Komputer zarejestrowany: ${data.name} (${computerId})`);
+          console.log(`✓ Komputer połączony: ${data.name}`);
           
           ws.send(JSON.stringify({
             type: 'registered',
@@ -174,7 +174,8 @@ wss.on('connection', (ws) => {
   
   ws.on('close', () => {
     if (ws.isComputer && ws.computerId) {
-      console.log(`Komputer rozłączony: ${ws.computerId}`);
+      const computerName = computers.get(ws.computerId)?.name || 'Unknown';
+      console.log(`○ Komputer rozłączony: ${computerName}`);
       computers.delete(ws.computerId);
       
       // Powiadom klientów webowych
@@ -184,7 +185,7 @@ wss.on('connection', (ws) => {
       });
     } else if (ws.isWebClient) {
       webClients.delete(ws);
-      console.log(`Klient webowy rozłączony: ${ws.username}`);
+      // Klient webowy rozłączony
     }
   });
   
@@ -408,8 +409,7 @@ app.get('/api/download-config', authenticateToken, (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Serwer działa na porcie ${PORT}`);
-  console.log(`WebSocket: ws://localhost:${PORT}`);
-  console.log(`HTTP API: http://localhost:${PORT}/api`);
-  console.log(`Download Agent: http://localhost:${PORT}/api/download-agent`);
+  console.log(`✓ Serwer uruchomiony pomyślnie`);
+  console.log(`✓ System autoryzacji aktywny`);
+  console.log(`✓ WebSocket server gotowy`);
 });

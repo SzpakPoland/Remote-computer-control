@@ -113,7 +113,6 @@ function App() {
     const ws = new WebSocket(WS_URL);
     
     ws.onopen = () => {
-      console.log('Połączono z serwerem');
       setConnected(true);
       ws.send(JSON.stringify({ 
         type: 'register_webclient',
@@ -156,7 +155,6 @@ function App() {
     };
     
     ws.onclose = () => {
-      console.log('Rozłączono z serwerem');
       setConnected(false);
       if (isAuthenticated) {
         setTimeout(connectWebSocket, 3000);
@@ -164,7 +162,7 @@ function App() {
     };
     
     ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      // WebSocket error
     };
     
     wsRef.current = ws;

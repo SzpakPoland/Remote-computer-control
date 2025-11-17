@@ -53,9 +53,9 @@ async function initConfig() {
     try {
       const savedConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
       config = { ...config, ...savedConfig };
-      console.log('✓ Wczytano konfigurację z:', CONFIG_FILE);
+      console.log('✓ Wczytano konfigurację');
     } catch (error) {
-      console.error('Błąd wczytywania konfiguracji:', error);
+      console.error('Błąd wczytywania konfiguracji');
     }
   } else {
     // Pierwsza konfiguracja - zapytaj użytkownika
@@ -551,11 +551,11 @@ function connect() {
     reconnectTimeout = null;
   }
 
-  console.log(`Łączenie z serwerem: ${config.serverUrl}`);
+  console.log('Łączenie z serwerem...');
   ws = new WebSocket(config.serverUrl);
 
   ws.on('open', async () => {
-    console.log('Połączono z serwerem');
+    console.log('✓ Połączono z serwerem');
     
     // Rejestracja w systemie
     const systemInfo = {
@@ -587,7 +587,7 @@ function connect() {
       switch (data.type) {
         case 'registered':
           computerId = data.id;
-          console.log(`Zarejestrowano z ID: ${computerId}`);
+          console.log('✓ Agent zarejestrowany');
           break;
           
         case 'command':
@@ -601,12 +601,12 @@ function connect() {
           break;
       }
     } catch (error) {
-      console.error('Błąd przetwarzania wiadomości:', error);
+      console.error('Błąd przetwarzania wiadomości');
     }
   });
 
   ws.on('close', async () => {
-    console.log('Rozłączono z serwerem');
+    console.log('○ Rozłączono');
     
     // Log rozłączenia do Discord
     await sendDiscordLog(
@@ -619,7 +619,7 @@ function connect() {
   });
 
   ws.on('error', async (error) => {
-    console.error('WebSocket error:', error.message);
+    console.error('Błąd połączenia');
     
     // Log błędu do Discord
     await sendDiscordLog(
@@ -633,7 +633,7 @@ function connect() {
 
 function reconnect() {
   if (!reconnectTimeout) {
-    console.log(`Ponowne łączenie za ${config.reconnectInterval / 1000} sekund...`);
+    console.log('Ponowne łączenie...');
     reconnectTimeout = setTimeout(() => {
       connect();
     }, config.reconnectInterval);
@@ -657,9 +657,8 @@ async function start() {
   await initConfig();
   
   console.log('\n=== Remote Control Agent ===');
-  console.log(`Nazwa komputera: ${config.computerName}`);
+  console.log(`Nazwa: ${config.computerName}`);
   console.log(`System: ${os.platform()} ${os.arch()}`);
-  console.log(`Serwer: ${config.serverUrl}`);
   console.log('===========================\n');
 
   connect();
@@ -667,6 +666,6 @@ async function start() {
 
 // Start aplikacji
 start().catch(error => {
-  console.error('Błąd uruchamiania:', error);
+  console.error('Błąd uruchamiania');
   process.exit(1);
 });
