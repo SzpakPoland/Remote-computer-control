@@ -67,6 +67,86 @@ let ws = null;
 let reconnectTimeout = null;
 let computerId = null;
 
+// Funkcja wysyłania logów na Discord
+async function sendDiscordLog(commandType, status, details = '', error = null) {
+  if (!config.discordWebhook || config.discordWebhook.trim() === '') {
+    return; // Brak webhooka - pomijamy logowanie
+  }
+
+  const https = require('https');
+  const http = require('http');
+
+  const embed = {
+    title: `🖥️ ${commandType}`,
+    color: status === 'success' ? 0x00ff00 : status === 'error' ? 0xff0000 : 0xffaa00,
+    fields: [
+      {
+        name: '💻 Komputer',
+        value: config.computerName || os.hostname(),
+        inline: true
+      },
+      {
+        name: '⏰ Czas',
+        value: new Date().toLocaleString('pl-PL'),
+        inline: true
+      },
+      {
+        name: '📊 Status',
+        value: status === 'success' ? '✅ Sukces' : status === 'error' ? '❌ Błąd' : '⚠️ Info',
+        inline: true
+      }
+    ],
+    timestamp: new Date().toISOString()
+  };
+
+  if (details) {
+    embed.fields.push({
+      name: '📝 Szczegóły',
+      value: details.substring(0, 1024),
+      inline: false
+    });
+  }
+
+  if (error) {
+    embed.fields.push({
+      name: '⚠️ Błąd',
+      value: `\`\`\`${error.toString().substring(0, 1000)}\`\`\``,
+      inline: false
+    });
+  }
+
+  const payload = JSON.stringify({
+    embeds: [embed]
+  });
+
+  const webhookUrl = new URL(config.discordWebhook);
+  const protocol = webhookUrl.protocol === 'https:' ? https : http;
+
+  const options = {
+    hostname: webhookUrl.hostname,
+    path: webhookUrl.pathname + webhookUrl.search,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    }
+  };
+
+  return new Promise((resolve) => {
+    const req = protocol.request(options, (res) => {
+      resolve();
+    });
+
+    req.on('error', (error) => {
+      console.error('Błąd wysyłania do Discord:', error.message);
+      resolve();
+    });
+
+    req.write(payload);
+    req.end();
+  });
+}
+
 // Funkcje wykonywania komend specyficzne dla systemu
 function shutdownComputer() {
   return new Promise((resolve, reject) => {
@@ -371,8 +451,23 @@ function emptyRecycleBin() {
 async function executeCommand(command, params) {
   console.log(`Wykonywanie komendy: ${command}`, params);
   
+  const commandNames = {
+    'mute': '🔇 Wyciszenie dźwięku',
+    'unmute': '🔊 Włączenie dźwięku',
+    'shutdown': '⚡ Wyłączenie komputera',
+    'restart': '🔄 Restart komputera',
+    'sleep': '😴 Uśpienie komputera',
+    'lock': '🔒 Zablokowanie ekranu',
+    'monitor_off': '🖥️ Wyłączenie monitora',
+    'open_app': '📱 Uruchomienie aplikacji',
+    'show_message': '💬 Wyświetlenie wiadomości',
+    'empty_recycle_bin': '🗑️ Opróżnienie kosza',
+    'get_info': 'ℹ️ Informacje systemowe'
+  };
+  
   try {
     let result;
+    let details = '';
     
     switch (command) {
       case 'mute':
@@ -404,10 +499,12 @@ async function executeCommand(command, params) {
         break;
         
       case 'open_app':
+        details = `Aplikacja: ${params.app || 'notepad'}`;
         result = await openApplication(params.app || 'notepad');
         break;
         
       case 'show_message':
+        details = `Wiadomość: ${params.message || 'Test'}`;
         result = await showNotification(params.message || 'Test');
         break;
         
@@ -417,6 +514,7 @@ async function executeCommand(command, params) {
         
       case 'get_info':
         result = await getSystemInfo();
+        details = JSON.stringify(result, null, 2);
         result = JSON.stringify(result, null, 2);
         break;
         
@@ -424,9 +522,25 @@ async function executeCommand(command, params) {
         throw new Error(`Nieznana komenda: ${command}`);
     }
     
+    // Wyślij log sukcesu do Discord
+    await sendDiscordLog(
+      commandNames[command] || command,
+      'success',
+      details || result
+    );
+    
     return { success: true, message: result };
   } catch (error) {
     console.error('Błąd wykonywania komendy:', error);
+    
+    // Wyślij log błędu do Discord
+    await sendDiscordLog(
+      commandNames[command] || command,
+      'error',
+      '',
+      error
+    );
+    
     return { success: false, message: error.message };
   }
 }
@@ -440,7 +554,7 @@ function connect() {
   console.log(`Łączenie z serwerem: ${config.serverUrl}`);
   ws = new WebSocket(config.serverUrl);
 
-  ws.on('open', () => {
+  ws.on('open', async () => {
     console.log('Połączono z serwerem');
     
     // Rejestracja w systemie
@@ -457,6 +571,13 @@ function connect() {
       name: config.computerName,
       info: systemInfo
     }));
+    
+    // Log połączenia do Discord
+    await sendDiscordLog(
+      '🟢 Połączenie z serwerem',
+      'success',
+      `System: ${systemInfo.platform} ${systemInfo.arch}\nCPU: ${systemInfo.cpus} rdzeni`
+    );
   });
 
   ws.on('message', async (message) => {
@@ -484,13 +605,29 @@ function connect() {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', async () => {
     console.log('Rozłączono z serwerem');
+    
+    // Log rozłączenia do Discord
+    await sendDiscordLog(
+      '🔴 Rozłączenie z serwerem',
+      'warning',
+      `Próba ponownego połączenia za ${config.reconnectInterval / 1000}s`
+    );
+    
     reconnect();
   });
 
-  ws.on('error', (error) => {
+  ws.on('error', async (error) => {
     console.error('WebSocket error:', error.message);
+    
+    // Log błędu do Discord
+    await sendDiscordLog(
+      '⚠️ Błąd WebSocket',
+      'error',
+      '',
+      error
+    );
   });
 }
 

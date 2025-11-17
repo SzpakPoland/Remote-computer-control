@@ -1,5 +1,6 @@
 {
   "serverUrl": "ws://localhost:3001",
-  "computerName": "Mój Komputer",
-  "reconnectInterval": 5000
+  "computerName": "komputer",
+  "reconnectInterval": 5000,
+  "discordWebhook": "https://discord.com/api/webhooks/1440065936563376259/iiyJc4drrdRrPGgOVH4v9a922NFgmakHXHZJmQ6UwrbpTE_X8WNk9Dim0nOa8eZa4StS"
 }
