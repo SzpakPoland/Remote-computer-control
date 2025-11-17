@@ -7,6 +7,17 @@
 - Minimum 512 MB RAM
 - Node.js 18.x lub nowszy
 
+## 🔐 Bezpieczeństwo i Autoryzacja
+
+**WAŻNE:** System posiada wbudowany panel logowania i autoryzację użytkowników.
+
+### Domyślne konto administratora:
+- **Login:** `SzpakPL`
+- **Hasło:** `genesisE12`
+- **Rola:** ROOT (pełne uprawnienia)
+
+**⚠️ UWAGA:** Po pierwszym uruchomieniu **NATYCHMIAST** zmień hasło do konta root w panelu zarządzania użytkownikami!
+
 ## 🔧 Krok 1: Przygotowanie Serwera
 
 ### 1.1 Połącz się z VPS przez SSH
@@ -92,7 +103,27 @@ cd /home/Remote-computer-control/server
 npm install
 ```
 
-### 3.3 Edytuj konfigurację (jeśli potrzeba)
+Zależności obejmują:
+- `express` - Serwer HTTP
+- `ws` - WebSocket
+- `bcrypt` - Hashowanie haseł
+- `jsonwebtoken` - Tokeny JWT
+- `express-session` - Sesje
+
+### 3.3 Ustaw zmienną środowiskową JWT Secret (WAŻNE!)
+
+```bash
+# Wygeneruj bezpieczny klucz (64 znaki)
+export JWT_SECRET=$(openssl rand -hex 32)
+
+# Lub ustaw własny:
+export JWT_SECRET="twoj-bardzo-bezpieczny-klucz-min-32-znaki"
+
+# Dodaj do .bashrc aby był stały
+echo "export JWT_SECRET=\"$JWT_SECRET\"" >> ~/.bashrc
+```
+
+### 3.4 Edytuj konfigurację (jeśli potrzeba)
 
 ```bash
 nano index.js
@@ -102,10 +133,14 @@ Sprawdź port (domyślnie 3001). Możesz zmienić na inny jeśli chcesz.
 
 ## 🚀 Krok 4: Uruchomienie Serwera
 
-### 4.1 Uruchom serwer przez PM2
+### 4.1 Uruchom serwer przez PM2 (z JWT Secret)
 
 ```bash
-pm2 start index.js --name remote-control-server
+# Z JWT Secret jako zmienną środowiskową
+pm2 start index.js --name remote-control-server --env JWT_SECRET="$JWT_SECRET"
+
+# Lub bezpośrednio:
+JWT_SECRET="twoj-bezpieczny-klucz" pm2 start index.js --name remote-control-server
 ```
 
 ### 4.2 Ustaw autostart po restarcie serwera
@@ -123,6 +158,17 @@ pm2 save
 pm2 status
 pm2 logs remote-control-server
 ```
+
+### 4.4 Pierwsze logowanie
+
+Po uruchomieniu serwera, przy pierwszym logowaniu użyj:
+- **Login:** `admin`
+- **Hasło:** `admin`
+
+**⚠️ NATYCHMIAST po pierwszym logowaniu:**
+1. Otwórz panel "👥 Użytkownicy"
+2. Zmień hasło dla konta `admin`
+3. Opcjonalnie: utwórz dodatkowe konta użytkowników
 
 ## 🔥 Krok 5: Konfiguracja Firewalla
 
@@ -236,9 +282,46 @@ npm run build
 ./dist/RemoteControlAgent
 ```
 
-## 🔒 Krok 8: Zabezpieczenia (Opcjonalnie - Zalecane)
+## 🔒 Krok 8: Zarządzanie Użytkownikami
 
-### 8.1 Konfiguracja Nginx jako Reverse Proxy
+System posiada wbudowany panel zarządzania użytkownikami dostępny dla konta ROOT.
+
+### 8.1 Funkcje panelu użytkowników
+
+**Jako ROOT możesz:**
+- ➕ Dodawać nowych użytkowników
+- 🔑 Zmieniać hasła użytkownikom
+- 🗑️ Usuwać użytkowników (oprócz root)
+- 👥 Przydzielać role (USER lub ROOT)
+- 📊 Przeglądać historię logowań
+
+### 8.2 Typy kont
+
+**ROOT:**
+- Pełny dostęp do systemu
+- Zarządzanie użytkownikami
+- Wszystkie funkcje kontroli komputerów
+
+**USER:**
+- Dostęp do kontroli komputerów
+- Brak dostępu do zarządzania użytkownikami
+
+### 8.3 Hasła użytkowników
+
+Hasła są bezpiecznie przechowywane używając:
+- **SHA512** - Pierwsza warstwa hashowania
+- **bcrypt** z solą (12 rund) - Druga warstwa
+- Brak możliwości odzyskania hasła (tylko reset)
+
+### 8.4 Tokeny JWT
+
+- Ważność: 24 godziny
+- Automatyczne wylogowanie po wygaśnięciu
+- Przechowywane lokalnie w przeglądarce
+
+## 🔐 Krok 9: Dodatkowe Zabezpieczenia (Opcjonalnie - Zalecane)
+
+### 9.1 Konfiguracja Nginx jako Reverse Proxy
 
 ```bash
 # Zainstaluj Nginx
@@ -284,7 +367,7 @@ sudo nginx -t
 sudo systemctl restart nginx
 ```
 
-### 8.2 Certyfikat SSL (HTTPS)
+### 9.2 Certyfikat SSL (HTTPS)
 
 ```bash
 # Zainstaluj Certbot
@@ -421,6 +504,49 @@ pm2 restart remote-control-server
 pm2 logs
 ```
 
+## 🔐 Zarządzanie Bezpieczeństwem
+
+### Backup bazy użytkowników
+
+```bash
+# Backup pliku users.json
+cp /home/Remote-computer-control/server/users.json /home/users_backup_$(date +%Y%m%d).json
+
+# Przywracanie
+cp /home/users_backup_20251117.json /home/Remote-computer-control/server/users.json
+pm2 restart remote-control-server
+```
+
+### Zmiana JWT Secret
+
+```bash
+# Wygeneruj nowy klucz
+export JWT_SECRET=$(openssl rand -hex 32)
+
+# Zapisz w systemie
+echo "export JWT_SECRET=\"$JWT_SECRET\"" >> ~/.bashrc
+
+# Restart serwera
+pm2 restart remote-control-server
+```
+
+**UWAGA:** Po zmianie JWT Secret wszyscy użytkownicy muszą zalogować się ponownie.
+
+### Dodanie pierwszego użytkownika przez API (alternatywa)
+
+```bash
+# Zaloguj się jako root i pobierz token
+curl -X POST http://localhost:3001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}'
+
+# Użyj tokenu do dodania użytkownika
+curl -X POST http://localhost:3001/api/users \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TWOJ_TOKEN" \
+  -d '{"username":"nowyuser","password":"haslo123","role":"user"}'
+```
+
 ## 🌍 Dostęp Zewnętrzny
 
 Po wdrożeniu system będzie dostępny:
@@ -430,13 +556,23 @@ Po wdrożeniu system będzie dostępny:
 - **Panel Web z Nginx**: `http://TWOJA_DOMENA.COM`
 - **Panel Web z SSL**: `https://TWOJA_DOMENA.COM`
 
+### 🔑 Logowanie
+
+Przy pierwszym dostępie:
+1. Przejdź do panelu web
+2. Zaloguj się jako `admin` / `admin`
+3. **NATYCHMIAST** zmień hasło w panelu użytkowników
+4. Utwórz dodatkowe konta dla innych użytkowników
+
 ## 📱 Kolejne Kroki
 
-1. ✅ Zainstaluj agenta na wszystkich komputerach które chcesz kontrolować
-2. ✅ Skonfiguruj Discord webhook dla logowania (opcjonalnie)
-3. ✅ Ustaw hasło/autoryzację jeśli planujesz publiczny dostęp
-4. ✅ Konfiguruj regularne backupy
-5. ✅ Monitoruj logi i wydajność
+1. ✅ **ZMIEŃ DOMYŚLNE HASŁO ROOT** - pierwsza i najważniejsza rzecz!
+2. ✅ Utwórz konta użytkowników dla zespołu
+3. ✅ Zainstaluj agenta na wszystkich komputerach które chcesz kontrolować
+4. ✅ Skonfiguruj Discord webhook dla logowania (opcjonalnie)
+5. ✅ Ustaw SSL/HTTPS dla bezpiecznego połączenia
+6. ✅ Konfiguruj regularne backupy bazy użytkowników
+7. ✅ Monitoruj logi i wydajność
 
 ## 🆘 Pomoc
 

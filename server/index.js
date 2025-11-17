@@ -6,20 +6,63 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const jwt = require('jsonwebtoken');
+const session = require('express-session');
+const auth = require('./auth');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-app.use(cors());
+const JWT_SECRET = process.env.JWT_SECRET || 'remote-control-secret-key-change-in-production';
+
+// Inicjalizacja systemu użytkowników
+auth.initializeUsers();
+
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(express.json());
+app.use(session({
+  secret: JWT_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false, httpOnly: true, maxAge: 24 * 60 * 60 * 1000 } // 24h
+}));
+
+// Middleware autoryzacji
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Brak tokenu autoryzacyjnego' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Nieprawidłowy token' });
+    }
+    req.user = user;
+    next();
+  });
+}
+
+// Middleware sprawdzający czy użytkownik jest rootem
+function requireRoot(req, res, next) {
+  if (req.user.role !== 'root') {
+    return res.status(403).json({ error: 'Wymagane uprawnienia administratora' });
+  }
+  next();
+}
 
 // Serwowanie plików do pobrania
 app.use('/downloads', express.static(path.join(__dirname, '..', 'remote-agent', 'dist')));
 
 // Przechowywanie połączonych komputerów i klientów webowych
 const computers = new Map(); // id -> {ws, name, info}
-const webClients = new Set();
+const webClients = new Map(); // ws -> {username, role}
 
 wss.on('connection', (ws) => {
   console.log('Nowe połączenie WebSocket');
@@ -56,15 +99,37 @@ wss.on('connection', (ws) => {
           break;
           
         case 'register_webclient':
-          // Klient webowy rejestruje się
-          ws.isWebClient = true;
-          webClients.add(ws);
+          // Klient webowy rejestruje się z tokenem
+          if (!data.token) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Brak tokenu autoryzacyjnego'
+            }));
+            ws.close();
+            return;
+          }
           
-          // Wyślij listę dostępnych komputerów
-          ws.send(JSON.stringify({
-            type: 'computer_list',
-            computers: getComputersList()
-          }));
+          // Weryfikuj token
+          try {
+            const decoded = jwt.verify(data.token, JWT_SECRET);
+            ws.isWebClient = true;
+            ws.username = decoded.username;
+            ws.role = decoded.role;
+            webClients.set(ws, { username: decoded.username, role: decoded.role });
+            
+            // Wyślij listę dostępnych komputerów
+            ws.send(JSON.stringify({
+              type: 'computer_list',
+              computers: getComputersList(),
+              user: { username: decoded.username, role: decoded.role }
+            }));
+          } catch (error) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Nieprawidłowy token'
+            }));
+            ws.close();
+          }
           break;
           
         case 'command':
@@ -119,6 +184,7 @@ wss.on('connection', (ws) => {
       });
     } else if (ws.isWebClient) {
       webClients.delete(ws);
+      console.log(`Klient webowy rozłączony: ${ws.username}`);
     }
   });
   
@@ -137,15 +203,144 @@ function getComputersList() {
 
 function broadcastToWebClients(data) {
   const message = JSON.stringify(data);
-  webClients.forEach(client => {
+  webClients.forEach((userData, client) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(message);
     }
   });
 }
 
-// REST API endpoints
-app.get('/api/computers', (req, res) => {
+// ===== AUTORYZACJA API =====
+
+// Logowanie
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Brak nazwy użytkownika lub hasła' });
+    }
+    
+    const user = await auth.authenticateUser(username, password);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło' });
+    }
+    
+    // Generuj JWT token
+    const token = jwt.sign(
+      { username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    res.json({
+      success: true,
+      token,
+      user: {
+        username: user.username,
+        role: user.role,
+        lastLogin: user.lastLogin
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Weryfikacja tokenu
+app.get('/api/auth/verify', authenticateToken, (req, res) => {
+  res.json({ 
+    valid: true, 
+    user: req.user 
+  });
+});
+
+// Wylogowanie
+app.post('/api/auth/logout', (req, res) => {
+  res.json({ success: true, message: 'Wylogowano pomyślnie' });
+});
+
+// ===== ZARZĄDZANIE UŻYTKOWNIKAMI (tylko root) =====
+
+// Lista użytkowników
+app.get('/api/users', authenticateToken, requireRoot, (req, res) => {
+  try {
+    const users = auth.getUsersList();
+    res.json({ users });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Dodaj użytkownika
+app.post('/api/users', authenticateToken, requireRoot, async (req, res) => {
+  try {
+    const { username, password, role } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Brak nazwy użytkownika lub hasła' });
+    }
+    
+    const newUser = await auth.addUser(username, password, role || 'user');
+    res.json({ success: true, user: newUser });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Usuń użytkownika
+app.delete('/api/users/:username', authenticateToken, requireRoot, (req, res) => {
+  try {
+    const { username } = req.params;
+    auth.deleteUser(username);
+    res.json({ success: true, message: `Użytkownik ${username} został usunięty` });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Zmień hasło użytkownika
+app.put('/api/users/:username/password', authenticateToken, requireRoot, async (req, res) => {
+  try {
+    const { username } = req.params;
+    const { password } = req.body;
+    
+    if (!password) {
+      return res.status(400).json({ error: 'Brak nowego hasła' });
+    }
+    
+    await auth.changePassword(username, password);
+    res.json({ success: true, message: `Hasło dla ${username} zostało zmienione` });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Zmień własne hasło
+app.put('/api/auth/change-password', authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Brak obecnego lub nowego hasła' });
+    }
+    
+    // Weryfikuj obecne hasło
+    const user = await auth.authenticateUser(req.user.username, currentPassword);
+    if (!user) {
+      return res.status(401).json({ error: 'Nieprawidłowe obecne hasło' });
+    }
+    
+    await auth.changePassword(req.user.username, newPassword);
+    res.json({ success: true, message: 'Hasło zostało zmienione' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ===== REST API endpoints =====
+app.get('/api/computers', authenticateToken, (req, res) => {
   res.json(getComputersList());
 });
 
@@ -153,8 +348,8 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', computers: computers.size, clients: webClients.size });
 });
 
-// Endpoint do pobrania agenta
-app.get('/api/download-agent', (req, res) => {
+// Endpoint do pobrania agenta (wymaga autoryzacji)
+app.get('/api/download-agent', authenticateToken, (req, res) => {
   const agentPath = path.join(__dirname, '..', 'remote-agent', 'dist', 'RemoteControlAgent.exe');
   
   if (fs.existsSync(agentPath)) {
@@ -166,8 +361,8 @@ app.get('/api/download-agent', (req, res) => {
   }
 });
 
-// Endpoint do generowania agenta z konfiguracją
-app.post('/api/generate-agent', (req, res) => {
+// Endpoint do generowania agenta z konfiguracją (wymaga autoryzacji)
+app.post('/api/generate-agent', authenticateToken, (req, res) => {
   const { serverUrl, computerName } = req.body;
   
   if (!serverUrl) {
@@ -200,8 +395,8 @@ app.post('/api/generate-agent', (req, res) => {
   });
 });
 
-// Endpoint do pobrania konfiguracji
-app.get('/api/download-config', (req, res) => {
+// Endpoint do pobrania konfiguracji (wymaga autoryzacji)
+app.get('/api/download-config', authenticateToken, (req, res) => {
   const configPath = path.join(__dirname, '..', 'remote-agent', 'dist', 'config.json');
   
   if (fs.existsSync(configPath)) {

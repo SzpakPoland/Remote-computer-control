@@ -5,6 +5,19 @@ const WS_URL = 'ws://localhost:3001';
 const API_URL = 'http://localhost:3001/api';
 
 function App() {
+  // Stan autoryzacji
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [token, setToken] = useState(localStorage.getItem('token') || '');
+  
+  // Panel zarządzania użytkownikami
+  const [showUserPanel, setShowUserPanel] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user' });
+  const [editingPassword, setEditingPassword] = useState({ username: '', password: '' });
+  
+  // Istniejący stan
   const [computers, setComputers] = useState([]);
   const [selectedComputer, setSelectedComputer] = useState(null);
   const [connected, setConnected] = useState(false);
@@ -16,15 +29,85 @@ function App() {
   });
   const wsRef = useRef(null);
 
+  // Sprawdź token przy starcie
   useEffect(() => {
-    connectWebSocket();
+    if (token) {
+      verifyToken();
+    }
+  }, []);
+
+  // Połącz WebSocket po zalogowaniu
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      connectWebSocket();
+    }
     
     return () => {
       if (wsRef.current) {
         wsRef.current.close();
       }
     };
-  }, []);
+  }, [isAuthenticated, token]);
+
+  const verifyToken = async () => {
+    try {
+      const response = await fetch(`${API_URL}/auth/verify`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentUser(data.user);
+        setIsAuthenticated(true);
+      } else {
+        localStorage.removeItem('token');
+        setToken('');
+      }
+    } catch (error) {
+      console.error('Error verifying token:', error);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    
+    try {
+      const response = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(loginForm)
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        setToken(data.token);
+        setCurrentUser(data.user);
+        setIsAuthenticated(true);
+        localStorage.setItem('token', data.token);
+        showMessage('Zalogowano pomyślnie!', 'success');
+      } else {
+        showMessage(data.error || 'Błąd logowania', 'error');
+      }
+    } catch (error) {
+      showMessage('Błąd połączenia z serwerem', 'error');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    setToken('');
+    localStorage.removeItem('token');
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    showMessage('Wylogowano pomyślnie', 'success');
+  };
 
   const connectWebSocket = () => {
     const ws = new WebSocket(WS_URL);
@@ -32,7 +115,10 @@ function App() {
     ws.onopen = () => {
       console.log('Połączono z serwerem');
       setConnected(true);
-      ws.send(JSON.stringify({ type: 'register_webclient' }));
+      ws.send(JSON.stringify({ 
+        type: 'register_webclient',
+        token: token
+      }));
     };
     
     ws.onmessage = (event) => {
@@ -59,6 +145,9 @@ function App() {
           
         case 'error':
           showMessage(data.message, 'error');
+          if (data.message.includes('token') || data.message.includes('autoryzacji')) {
+            handleLogout();
+          }
           break;
           
         default:
@@ -69,7 +158,9 @@ function App() {
     ws.onclose = () => {
       console.log('Rozłączono z serwerem');
       setConnected(false);
-      setTimeout(connectWebSocket, 3000);
+      if (isAuthenticated) {
+        setTimeout(connectWebSocket, 3000);
+      }
     };
     
     ws.onerror = (error) => {
@@ -105,22 +196,47 @@ function App() {
 
   const handleDownloadAgent = async () => {
     try {
-      // Generuj konfigurację
       const response = await fetch(`${API_URL}/generate-agent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(downloadConfig),
       });
 
       if (response.ok) {
         // Pobierz agenta
-        window.open(`${API_URL}/download-agent`, '_blank');
+        const link = document.createElement('a');
+        link.href = `${API_URL}/download-agent`;
+        link.setAttribute('download', 'RemoteControlAgent.exe');
+        link.style.display = 'none';
+        document.body.appendChild(link);
         
-        // Pobierz config.json
-        setTimeout(() => {
-          window.open(`${API_URL}/download-config`, '_blank');
+        // Dodaj token do nagłówka przez fetch
+        const agentResponse = await fetch(`${API_URL}/download-agent`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const blob = await agentResponse.blob();
+        const url = window.URL.createObjectURL(blob);
+        link.href = url;
+        link.click();
+        document.body.removeChild(link);
+        
+        // Pobierz config
+        setTimeout(async () => {
+          const configLink = document.createElement('a');
+          const configResponse = await fetch(`${API_URL}/download-config`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const configBlob = await configResponse.blob();
+          const configUrl = window.URL.createObjectURL(configBlob);
+          configLink.href = configUrl;
+          configLink.setAttribute('download', 'config.json');
+          configLink.style.display = 'none';
+          document.body.appendChild(configLink);
+          configLink.click();
+          document.body.removeChild(configLink);
         }, 500);
         
         showMessage('Pobieranie agenta i konfiguracji...', 'success');
@@ -134,17 +250,180 @@ function App() {
     }
   };
 
+  // ===== ZARZĄDZANIE UŻYTKOWNIKAMI =====
+  const loadUsers = async () => {
+    try {
+      const response = await fetch(`${API_URL}/users`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setUsers(data.users);
+      }
+    } catch (error) {
+      showMessage('Błąd wczytywania użytkowników', 'error');
+    }
+  };
+
+  const handleAddUser = async (e) => {
+    e.preventDefault();
+    
+    try {
+      const response = await fetch(`${API_URL}/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(newUser)
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        showMessage(`Użytkownik ${newUser.username} dodany!`, 'success');
+        setNewUser({ username: '', password: '', role: 'user' });
+        loadUsers();
+      } else {
+        showMessage(data.error || 'Błąd dodawania użytkownika', 'error');
+      }
+    } catch (error) {
+      showMessage('Błąd połączenia', 'error');
+    }
+  };
+
+  const handleDeleteUser = async (username) => {
+    if (!window.confirm(`Czy na pewno usunąć użytkownika ${username}?`)) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${API_URL}/users/${username}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        showMessage(`Użytkownik ${username} usunięty!`, 'success');
+        loadUsers();
+      } else {
+        const data = await response.json();
+        showMessage(data.error || 'Błąd usuwania', 'error');
+      }
+    } catch (error) {
+      showMessage('Błąd połączenia', 'error');
+    }
+  };
+
+  const handleChangePassword = async (username) => {
+    const newPassword = prompt(`Nowe hasło dla ${username}:`);
+    if (!newPassword) return;
+    
+    try {
+      const response = await fetch(`${API_URL}/users/${username}/password`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ password: newPassword })
+      });
+      
+      if (response.ok) {
+        showMessage(`Hasło zmienione dla ${username}!`, 'success');
+      } else {
+        const data = await response.json();
+        showMessage(data.error || 'Błąd zmiany hasła', 'error');
+      }
+    } catch (error) {
+      showMessage('Błąd połączenia', 'error');
+    }
+  };
+
+  // Ekran logowania
+  if (!isAuthenticated) {
+    return (
+      <div className="login-container">
+        <div className="login-box">
+          <h1>🖥️ Remote Control</h1>
+          <h2>Panel Logowania</h2>
+          
+          {message && (
+            <div className={`message ${message.type}`}>
+              {message.text}
+            </div>
+          )}
+          
+          <form onSubmit={handleLogin}>
+            <div className="form-group">
+              <label>Nazwa użytkownika:</label>
+              <input
+                type="text"
+                value={loginForm.username}
+                onChange={(e) => setLoginForm({...loginForm, username: e.target.value})}
+                placeholder="Wpisz nazwę użytkownika"
+                required
+                autoFocus
+              />
+            </div>
+            
+            <div className="form-group">
+              <label>Hasło:</label>
+              <input
+                type="password"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({...loginForm, password: e.target.value})}
+                placeholder="Wpisz hasło"
+                required
+              />
+            </div>
+            
+            <button type="submit" className="btn btn-primary btn-block">
+              🔐 Zaloguj się
+            </button>
+          </form>
+          
+          <div className="login-footer">
+            <p>Domyślne konto root:</p>
+            <p><code>Login: admin | Hasło: admin</code></p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Główny interfejs
   return (
     <div className="App">
       <header className="header">
         <h1>🖥️ Zdalne Sterowanie Komputerami</h1>
         <div className="header-right">
+          {currentUser?.role === 'root' && (
+            <button 
+              className="btn btn-admin" 
+              onClick={() => {
+                setShowUserPanel(!showUserPanel);
+                if (!showUserPanel) loadUsers();
+              }}
+              title="Zarządzanie użytkownikami"
+            >
+              👥 Użytkownicy
+            </button>
+          )}
           <button 
             className="btn btn-download" 
             onClick={() => setShowDownloadModal(true)}
             title="Pobierz agenta dla nowego komputera"
           >
             📥 Pobierz Agenta
+          </button>
+          <div className="user-info">
+            <span>👤 {currentUser?.username}</span>
+            {currentUser?.role === 'root' && <span className="badge-root">ROOT</span>}
+          </div>
+          <button className="btn btn-logout" onClick={handleLogout}>
+            🚪 Wyloguj
           </button>
           <div className={`status ${connected ? 'connected' : 'disconnected'}`}>
             {connected ? '● Połączono' : '○ Rozłączono'}
@@ -155,6 +434,92 @@ function App() {
       {message && (
         <div className={`message ${message.type}`}>
           {message.text}
+        </div>
+      )}
+
+      {/* Panel zarządzania użytkownikami */}
+      {showUserPanel && currentUser?.role === 'root' && (
+        <div className="user-management-panel">
+          <h2>👥 Zarządzanie Użytkownikami</h2>
+          
+          <div className="user-management-content">
+            <div className="add-user-section">
+              <h3>➕ Dodaj Nowego Użytkownika</h3>
+              <form onSubmit={handleAddUser}>
+                <div className="form-inline">
+                  <input
+                    type="text"
+                    placeholder="Nazwa użytkownika"
+                    value={newUser.username}
+                    onChange={(e) => setNewUser({...newUser, username: e.target.value})}
+                    required
+                  />
+                  <input
+                    type="password"
+                    placeholder="Hasło"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+                    required
+                  />
+                  <select
+                    value={newUser.role}
+                    onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+                  >
+                    <option value="user">User</option>
+                    <option value="root">Root</option>
+                  </select>
+                  <button type="submit" className="btn btn-primary">Dodaj</button>
+                </div>
+              </form>
+            </div>
+            
+            <div className="users-list-section">
+              <h3>📋 Lista Użytkowników</h3>
+              <table className="users-table">
+                <thead>
+                  <tr>
+                    <th>Użytkownik</th>
+                    <th>Rola</th>
+                    <th>Utworzono</th>
+                    <th>Ostatnie logowanie</th>
+                    <th>Akcje</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map(user => (
+                    <tr key={user.username}>
+                      <td>{user.username}</td>
+                      <td>
+                        <span className={`badge-${user.role}`}>
+                          {user.role === 'root' ? '👑 ROOT' : '👤 USER'}
+                        </span>
+                      </td>
+                      <td>{new Date(user.createdAt).toLocaleString('pl-PL')}</td>
+                      <td>{user.lastLogin ? new Date(user.lastLogin).toLocaleString('pl-PL') : 'Nigdy'}</td>
+                      <td>
+                        <button 
+                          className="btn btn-sm btn-warning"
+                          onClick={() => handleChangePassword(user.username)}
+                          title="Zmień hasło"
+                        >
+                          🔑
+                        </button>
+                        {user.role !== 'root' && (
+                          <button 
+                            className="btn btn-sm btn-danger"
+                            onClick={() => handleDeleteUser(user.username)}
+                            title="Usuń użytkownika"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
@@ -190,10 +555,10 @@ function App() {
               <div className="control-section">
                 <h3>🔊 Dźwięk</h3>
                 <div className="power-controls">
-                  <button onClick={() => sendCommand('mute')} className="btn btn-warning">
+                  <button onClick={() => sendCommand('unmute')} className="btn btn-warning">
                     🔊 Włącz Dźwięk
                   </button>
-                  <button onClick={() => sendCommand('unmute')} className="btn btn-primary">
+                  <button onClick={() => sendCommand('mute')} className="btn btn-primary">
                     🔇 Wycisz
                   </button>
                 </div>

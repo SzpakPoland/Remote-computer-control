@@ -1,6 +1,6 @@
 # Remote Computer Control 🖥️
 
-System zdalnego sterowania komputerami przez przeglądarkę internetową.
+System zdalnego sterowania komputerami przez przeglądarkę internetową z pełną autoryzacją użytkowników.
 
 ## 📋 Opis
 
@@ -10,21 +10,51 @@ Aplikacja składa się z trzech głównych komponentów:
 2. **Web Client** - Strona internetowa (React) do zarządzania komputerami
 3. **Remote Agent** - Program instalowany na zdalnych komputerach
 
+## 🔐 Bezpieczeństwo
+
+System posiada wbudowaną autoryzację użytkowników:
+- **Panel logowania** z JWT tokenami
+- **Hashowanie haseł** (SHA512 + bcrypt)
+- **Zarządzanie użytkownikami** (tylko ROOT)
+- **Role użytkowników** (ROOT / USER)
+- **Domyślne konto:** `admin` / `admin` ⚠️ **ZMIEŃ HASŁO PO INSTALACJI!**
+
+📖 **Pełna dokumentacja:** [AUTH_SYSTEM.md](AUTH_SYSTEM.md)
+
 ## ✨ Funkcje
 
-- 🔊 Regulacja głośności
+### Kontrola Systemu
+- 🔊 Wyciszanie/włączanie dźwięku
 - 🔴 Wyłączanie komputera
 - 🔄 Restart komputera
 - 😴 Usypianie komputera
-- ℹ️ Informacje o systemie
-- 🔄 Automatyczne ponowne łączenie
-- 📊 Lista podłączonych komputerów w czasie rzeczywistym
+- 🔒 Blokowanie ekranu
+- 🖥️ Wyłączanie monitora
 
-## 🚀 Instalacja
+### Zarządzanie
+- 📱 Uruchamianie aplikacji
+- 💬 Wysyłanie wiadomości
+- 🗑️ Opróżnianie kosza
+- ℹ️ Informacje o systemie
+- 📊 Lista komputerów w czasie rzeczywistym
+
+### Autoryzacja i Użytkownicy
+- 👤 Panel logowania
+- 👥 Zarządzanie użytkownikami (ROOT)
+- 🔑 Zmiana haseł
+- 🔐 Tokeny JWT (24h)
+- 📋 Historia logowań
+
+### Dodatkowe
+- 📥 Pobieranie agenta z konfiguracją
+- 🔄 Automatyczne ponowne łączenie
+- 📊 Logi na Discord (opcjonalnie)
+
+## 🚀 Szybki Start
 
 ### Wymagania
 
-- Node.js (wersja 16 lub nowsza)
+- Node.js 18.x lub nowszy
 - npm lub yarn
 
 ### 1. Server
@@ -32,10 +62,14 @@ Aplikacja składa się z trzech głównych komponentów:
 ```bash
 cd server
 npm install
+
+# Opcjonalnie: Ustaw własny JWT Secret (ZALECANE dla produkcji)
+export JWT_SECRET="twoj-bezpieczny-klucz-min-32-znaki"
+
 npm start
 ```
 
-Serwer uruchomi się domyślnie na porcie 3001.
+Serwer uruchomi się na porcie 3001 i automatycznie utworzy domyślne konto ROOT.
 
 ### 2. Web Client (Interfejs WWW)
 
@@ -45,7 +79,18 @@ npm install
 npm start
 ```
 
-Aplikacja webowa uruchomi się na porcie 3000 i otworzy się automatycznie w przeglądarce.
+Aplikacja webowa uruchomi się na porcie 3000.
+
+### 3. Pierwsze Logowanie ⚠️
+
+1. Otwórz przeglądarkę: `http://localhost:3000`
+2. Zaloguj się:
+   - **Login:** `admin`
+   - **Hasło:** `admin`
+3. **NATYCHMIAST** zmień hasło:
+   - Kliknij "👥 Użytkownicy"
+   - Znajdź użytkownika `admin`
+   - Kliknij 🔑 i ustaw nowe hasło
 
 ### 3. Remote Agent (Program na zdalnych komputerach)
 
@@ -97,20 +142,24 @@ Plik `remote-agent/config.json`:
 
 ## 🔒 Bezpieczeństwo
 
-⚠️ **WAŻNE**: To jest podstawowa wersja demonstracyjna. Przed użyciem w produkcji:
+✅ System posiada pełną autoryzację użytkowników! Przed użyciem w produkcji:
 
-1. Dodaj autoryzację użytkowników
-2. Użyj WSS (WebSocket Secure) zamiast WS
-3. Dodaj weryfikację komend
-4. Ogranicz dostęp do serwera (firewall, VPN)
-5. Dodaj logi wszystkich działań
-6. Zabezpiecz endpoint'y API
+1. ✅ **Zmień domyślne hasło ROOT** - PIERWSZA rzecz po instalacji!
+2. ✅ **Ustaw własny JWT_SECRET** - w zmiennych środowiskowych
+3. 🔄 Użyj WSS (WebSocket Secure) zamiast WS
+4. 🔄 Skonfiguruj SSL/HTTPS (Nginx + Let's Encrypt)
+5. ✅ Ogranicz dostęp do serwera (firewall, VPN)
+6. ✅ Logi wszystkich działań (opcjonalnie Discord)
+7. ✅ Zabezpieczone endpoint'y API (JWT)
+
+📖 **Szczegóły:** [AUTH_SYSTEM.md](AUTH_SYSTEM.md)
 
 ## 🛠️ Technologie
 
-- **Backend**: Node.js, Express, WebSocket (ws)
-- **Frontend**: React, CSS3
+- **Backend**: Node.js, Express, WebSocket (ws), bcrypt, JWT, express-session
+- **Frontend**: React 18, CSS3
 - **Agent**: Node.js, WebSocket, system APIs
+- **Bezpieczeństwo**: SHA512 + bcrypt, JWT tokens, autoryzacja
 
 ## 📱 Obsługiwane systemy
 
@@ -151,18 +200,28 @@ Zobacz plik [LICENSE](LICENSE)
 
 ## 🐛 Znane problemy
 
-- Regulacja głośności na Windows wymaga PowerShell
 - Na Linux/macOS niektóre komendy mogą wymagać sudo
-- Brak szyfrowania komunikacji w wersji podstawowej
+- WSS (szyfrowane połączenie) wymaga konfiguracji Nginx + SSL
 
 ## 💡 Pomysły na rozwój
 
-- [ ] Autoryzacja i zarządzanie użytkownikami
+- [x] Autoryzacja i zarządzanie użytkownikami ✅
+- [x] Logi na Discord ✅
 - [ ] Szyfrowanie połączeń (WSS)
 - [ ] Więcej komend systemowych
-- [ ] Historia wykonanych operacji
+- [ ] Historia wykonanych operacji w bazie
 - [ ] Grupy komputerów
-- [ ] Powiadomienia push
+- [ ] Zdalny pulpit (VNC/RDP)
+- [ ] Transfer plików
+- [ ] Screenshoty
+- [ ] Monitoring zasobów w czasie rzeczywistym
+
+## 📚 Dokumentacja
+
+- 📖 [AUTH_SYSTEM.md](AUTH_SYSTEM.md) - System autoryzacji i zarządzania użytkownikami
+- 🌐 [VPS_DEPLOYMENT.md](VPS_DEPLOYMENT.md) - Wdrożenie na serwerze VPS Ubuntu
+- 📊 [DISCORD_LOGGING.md](DISCORD_LOGGING.md) - Konfiguracja logów na Discord
+- 🐛 [BUGFIXES.md](BUGFIXES.md) - Historia poprawek
 - [ ] Aplikacja mobilna
 - [ ] Zdalne sterowanie myszką/klawiaturą
 - [ ] Transfer plików
