@@ -4,12 +4,24 @@
   "description": "Agent running on remote computers to receive control commands",
   "main": "agent.js",
   "scripts": {
-    "start": "node agent.js"
+    "start": "node agent.js",
+    "build": "pkg . --targets node18-win-x64 --output dist/RemoteControlAgent.exe",
+    "build-all": "pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --out-path dist"
+  },
+  "bin": "agent.js",
+  "pkg": {
+    "assets": [
+      "config.json"
+    ],
+    "outputPath": "dist"
   },
   "keywords": ["remote", "control", "agent"],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
   }
 }

@@ -1,28 +1,66 @@
+#!/usr/bin/env node
 const WebSocket = require('ws');
 const os = require('os');
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 
-// Konfiguracja
-const CONFIG_FILE = path.join(__dirname, 'config.json');
+// Ścieżka do konfiguracji (w folderze z exe lub skryptem)
+const isPackaged = typeof process.pkg !== 'undefined';
+const APP_DIR = isPackaged ? path.dirname(process.execPath) : __dirname;
+const CONFIG_FILE = path.join(APP_DIR, 'config.json');
+
 let config = {
   serverUrl: 'ws://localhost:3001',
   computerName: os.hostname(),
   reconnectInterval: 5000
 };
 
-// Wczytaj konfigurację jeśli istnieje
-if (fs.existsSync(CONFIG_FILE)) {
-  try {
-    config = { ...config, ...JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) };
-  } catch (error) {
-    console.error('Błąd wczytywania konfiguracji:', error);
+// Funkcja do interaktywnej konfiguracji
+async function setupConfiguration() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  const question = (query) => new Promise((resolve) => rl.question(query, resolve));
+
+  console.log('\n=== Konfiguracja Remote Control Agent ===\n');
+  
+  const serverUrl = await question(`Adres serwera [${config.serverUrl}]: `);
+  if (serverUrl.trim()) {
+    config.serverUrl = serverUrl.trim();
   }
-} else {
-  // Utwórz domyślną konfigurację
+  
+  const computerName = await question(`Nazwa komputera [${config.computerName}]: `);
+  if (computerName.trim()) {
+    config.computerName = computerName.trim();
+  }
+
+  rl.close();
+
+  // Zapisz konfigurację
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-  console.log('Utworzono plik konfiguracyjny:', CONFIG_FILE);
+  console.log('\n✓ Konfiguracja zapisana w:', CONFIG_FILE);
+  console.log('Możesz edytować ten plik ręcznie w przyszłości.\n');
+}
+
+// Główna inicjalizacja
+async function initConfig() {
+  // Wczytaj konfigurację jeśli istnieje
+  if (fs.existsSync(CONFIG_FILE)) {
+    try {
+      const savedConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+      config = { ...config, ...savedConfig };
+      console.log('✓ Wczytano konfigurację z:', CONFIG_FILE);
+    } catch (error) {
+      console.error('Błąd wczytywania konfiguracji:', error);
+    }
+  } else {
+    // Pierwsza konfiguracja - zapytaj użytkownika
+    await setupConfiguration();
+  }
 }
 
 let ws = null;
@@ -358,11 +396,21 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// Start
-console.log('=== Remote Control Agent ===');
-console.log(`Nazwa komputera: ${config.computerName}`);
-console.log(`System: ${os.platform()} ${os.arch()}`);
-console.log(`Serwer: ${config.serverUrl}`);
-console.log('===========================\n');
+// Główna funkcja startowa
+async function start() {
+  await initConfig();
+  
+  console.log('\n=== Remote Control Agent ===');
+  console.log(`Nazwa komputera: ${config.computerName}`);
+  console.log(`System: ${os.platform()} ${os.arch()}`);
+  console.log(`Serwer: ${config.serverUrl}`);
+  console.log('===========================\n');
 
-connect();
+  connect();
+}
+
+// Start aplikacji
+start().catch(error => {
+  console.error('Błąd uruchamiania:', error);
+  process.exit(1);
+});

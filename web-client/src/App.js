@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 const WS_URL = 'ws://localhost:3001';
+const API_URL = 'http://localhost:3001/api';
 
 function App() {
   const [computers, setComputers] = useState([]);
@@ -9,6 +10,11 @@ function App() {
   const [connected, setConnected] = useState(false);
   const [volume, setVolume] = useState(50);
   const [message, setMessage] = useState('');
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadConfig, setDownloadConfig] = useState({
+    serverUrl: window.location.hostname === 'localhost' ? 'ws://localhost:3001' : `ws://${window.location.hostname}:3001`,
+    computerName: ''
+  });
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -107,12 +113,52 @@ function App() {
     sendCommand('set_volume', { volume });
   };
 
+  const handleDownloadAgent = async () => {
+    try {
+      // Generuj konfigurację
+      const response = await fetch(`${API_URL}/generate-agent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(downloadConfig),
+      });
+
+      if (response.ok) {
+        // Pobierz agenta
+        window.open(`${API_URL}/download-agent`, '_blank');
+        
+        // Pobierz config.json
+        setTimeout(() => {
+          window.open(`${API_URL}/download-config`, '_blank');
+        }, 500);
+        
+        showMessage('Pobieranie agenta i konfiguracji...', 'success');
+        setShowDownloadModal(false);
+      } else {
+        const error = await response.json();
+        showMessage(error.error || 'Błąd pobierania agenta', 'error');
+      }
+    } catch (error) {
+      showMessage('Błąd połączenia z serwerem', 'error');
+    }
+  };
+
   return (
     <div className="App">
       <header className="header">
         <h1>🖥️ Zdalne Sterowanie Komputerami</h1>
-        <div className={`status ${connected ? 'connected' : 'disconnected'}`}>
-          {connected ? '● Połączono' : '○ Rozłączono'}
+        <div className="header-right">
+          <button 
+            className="btn btn-download" 
+            onClick={() => setShowDownloadModal(true)}
+            title="Pobierz agenta dla nowego komputera"
+          >
+            📥 Pobierz Agenta
+          </button>
+          <div className={`status ${connected ? 'connected' : 'disconnected'}`}>
+            {connected ? '● Połączono' : '○ Rozłączono'}
+          </div>
         </div>
       </header>
 
@@ -211,6 +257,57 @@ function App() {
           )}
         </div>
       </div>
+
+      {/* Modal pobierania agenta */}
+      {showDownloadModal && (
+        <div className="modal-overlay" onClick={() => setShowDownloadModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>📥 Pobierz Agenta</h2>
+            <p>Skonfiguruj i pobierz agenta dla nowego komputera</p>
+            
+            <div className="form-group">
+              <label>Adres Serwera:</label>
+              <input
+                type="text"
+                value={downloadConfig.serverUrl}
+                onChange={(e) => setDownloadConfig({...downloadConfig, serverUrl: e.target.value})}
+                placeholder="ws://localhost:3001"
+              />
+              <small>Adres WebSocket serwera (zmień localhost na IP serwera dla sieci lokalnej)</small>
+            </div>
+
+            <div className="form-group">
+              <label>Nazwa Komputera (opcjonalna):</label>
+              <input
+                type="text"
+                value={downloadConfig.computerName}
+                onChange={(e) => setDownloadConfig({...downloadConfig, computerName: e.target.value})}
+                placeholder="Zostaw puste dla domyślnej nazwy"
+              />
+            </div>
+
+            <div className="modal-actions">
+              <button onClick={handleDownloadAgent} className="btn btn-primary">
+                📥 Pobierz Agent + Config
+              </button>
+              <button onClick={() => setShowDownloadModal(false)} className="btn btn-secondary">
+                Anuluj
+              </button>
+            </div>
+
+            <div className="instructions">
+              <h4>Instrukcja:</h4>
+              <ol>
+                <li>Pobierz <code>RemoteControlAgent.exe</code> i <code>config.json</code></li>
+                <li>Umieść oba pliki w tym samym folderze na docelowym komputerze</li>
+                <li>Uruchom <code>RemoteControlAgent.exe</code></li>
+                <li>Komputer pojawi się automatycznie na liście</li>
+              </ol>
+              <p><strong>Uwaga:</strong> Program nie wymaga uprawnień administratora!</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
