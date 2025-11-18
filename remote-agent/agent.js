@@ -576,7 +576,7 @@ function connect() {
     await sendDiscordLog(
       '🟢 Połączenie z serwerem',
       'success',
-      `System: ${systemInfo.platform} ${systemInfo.arch}\nCPU: ${systemInfo.cpus} rdzeni`
+      `Serwer: ${config.serverUrl}\nSystem: ${systemInfo.platform} ${systemInfo.arch}\nCPU: ${systemInfo.cpus} rdzeni\nID: ${computerId}`
     );
   });
 

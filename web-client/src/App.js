@@ -339,6 +339,30 @@ function App() {
     }
   };
 
+  // Funkcja zmiany nazwy komputera
+  const renameComputer = async (computerId, newName) => {
+    try {
+      const response = await fetch(`${API_URL}/computers/${computerId}/rename`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name: newName })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        showMessage('Nazwa zmieniona!', 'success');
+      } else {
+        showMessage(data.error || 'Błąd zmiany nazwy', 'error');
+      }
+    } catch (error) {
+      showMessage('Błąd połączenia', 'error');
+    }
+  };
+
   // Ekran logowania
   if (!isAuthenticated) {
     return (
@@ -532,13 +556,26 @@ function App() {
                 <div
                   key={computer.id}
                   className={`computer-item ${selectedComputer?.id === computer.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedComputer(computer)}
                 >
-                  <div className="computer-name">{computer.name}</div>
-                  <div className="computer-info">
-                    {computer.info.platform && `${computer.info.platform} • `}
-                    {computer.info.hostname}
+                  <div onClick={() => setSelectedComputer(computer)}>
+                    <div className="computer-name">{computer.name}</div>
+                    <div className="computer-info">
+                      {computer.info.platform && `${computer.info.platform} • `}
+                      {computer.info.hostname}
+                    </div>
                   </div>
+                  <button 
+                    className="rename-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const newName = prompt('Podaj nową nazwę:', computer.name);
+                      if (newName && newName.trim() !== '') {
+                        renameComputer(computer.id, newName.trim());
+                      }
+                    }}
+                  >
+                    ✏️
+                  </button>
                 </div>
               ))}
             </div>

