@@ -11,10 +11,7 @@
 
 **WAŻNE:** System posiada wbudowany panel logowania i autoryzację użytkowników.
 
-### Domyślne konto administratora:
-- **Login:** `SzpakPL`
-- **Hasło:** `genesisE12`
-- **Rola:** ROOT (pełne uprawnienia)
+
 
 **⚠️ UWAGA:** Po pierwszym uruchomieniu **NATYCHMIAST** zmień hasło do konta root w panelu zarządzania użytkownikami!
 
@@ -23,9 +20,9 @@
 ### 1.1 Połącz się z VPS przez SSH
 
 ```bash
-ssh root@TWOJ_ADRES_IP_VPS
+ssh root@145.239.88.142
 # lub
-ssh uzytkownik@TWOJ_ADRES_IP_VPS
+ssh uzytkownik@145.239.88.142
 ```
 
 ### 1.2 Aktualizacja systemu
@@ -34,7 +31,6 @@ ssh uzytkownik@TWOJ_ADRES_IP_VPS
 sudo apt update
 sudo apt upgrade -y
 ```
-
 ### 1.3 Instalacja Node.js 18.x
 
 ```bash
@@ -212,7 +208,7 @@ nano src/App.js
 Zmień linię z WebSocket na:
 
 ```javascript
-const ws = new WebSocket('ws://TWOJ_ADRES_IP_VPS:3001');
+const ws = new WebSocket('ws://145.239.88.142:3001');
 ```
 
 ```bash
@@ -234,14 +230,14 @@ Otwórz port 3000:
 sudo ufw allow 3000/tcp
 ```
 
-Teraz interfejs web będzie dostępny pod: `http://TWOJ_ADRES_IP_VPS:3000`
+Teraz interfejs web będzie dostępny pod: `http://145.239.88.142:3000`
 
 ### Opcja B: Hostowanie lokalnie (tylko serwer na VPS)
 
 Na swoim komputerze lokalnym, w pliku `web-client/src/App.js` zmień:
 
 ```javascript
-const ws = new WebSocket('ws://TWOJ_ADRES_IP_VPS:3001');
+const ws = new WebSocket('ws://145.239.88.142:3001');
 ```
 
 Uruchom lokalnie:
@@ -265,7 +261,7 @@ npm run build
 
 ```json
 {
-  "serverUrl": "ws://TWOJ_ADRES_IP_VPS:3001",
+  "serverUrl": "ws://145.239.88.142:3001",
   "computerName": "Mój Komputer",
   "reconnectInterval": 5000,
   "discordWebhook": ""
@@ -551,8 +547,8 @@ curl -X POST http://localhost:3001/api/users \
 
 Po wdrożeniu system będzie dostępny:
 
-- **Serwer WebSocket**: `ws://TWOJ_ADRES_IP_VPS:3001`
-- **Panel Web** (jeśli hostowany): `http://TWOJ_ADRES_IP_VPS:3000`
+- **Serwer WebSocket**: `ws://145.239.88.142:3001`
+- **Panel Web** (jeśli hostowany): `http://145.239.88.142:3000`
 - **Panel Web z Nginx**: `http://TWOJA_DOMENA.COM`
 - **Panel Web z SSL**: `https://TWOJA_DOMENA.COM`
 

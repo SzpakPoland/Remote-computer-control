@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 
-const WS_URL = 'ws://localhost:3001';
-const API_URL = 'http://localhost:3001/api';
+const WS_URL = 'ws://145.239.88.142:3001';
+const API_URL = 'http://145.239.88.142:3001/api';
 
 function App() {
   // Stan autoryzacji
@@ -24,7 +24,7 @@ function App() {
   const [message, setMessage] = useState('');
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloadConfig, setDownloadConfig] = useState({
-    serverUrl: window.location.hostname === 'localhost' ? 'ws://localhost:3001' : `ws://${window.location.hostname}:3001`,
+    serverUrl: 'ws://145.239.88.142:3001',
     computerName: ''
   });
   const wsRef = useRef(null);
